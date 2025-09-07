@@ -42,6 +42,7 @@ export default function InventoryProjectPage() {
   const [estRate, setEstRate] = useState<number | undefined>(0)
   const [estimateSaving, setEstimateSaving] = useState(false)
   const [estimateProjectName, setEstimateProjectName] = useState('')
+  const [biddingAmount, setBiddingAmount] = useState<number | undefined>(undefined)
 
   // Section ref to scroll from the top button
   const itemsSectionRef = useRef<HTMLDivElement | null>(null)
@@ -113,7 +114,7 @@ export default function InventoryProjectPage() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-lg font-semibold">Construction Work</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setEstimateOpen(true)}>Estimate</Button>
+          <Button variant="outline" onClick={() => setEstimateOpen(true)}>Bidding / Estimate</Button>
           <Button onClick={() => itemsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Project Items</Button>
         </div>
       </div>
@@ -125,6 +126,10 @@ export default function InventoryProjectPage() {
             <label className="text-sm">Project Name</label>
             <Input value={estimateProjectName} onChange={(e) => setEstimateProjectName(e.target.value)} placeholder="e.g. Site A – Estimation" />
           </div>
+          <div>
+            <label className="text-sm">Bidding Amount</label>
+            <MoneyInput value={biddingAmount} onChange={(v) => setBiddingAmount(v as number)} />
+          </div>
           <div className="ml-auto flex items-end gap-2">
             <Button variant="outline" onClick={() => setEstimateOpen(true)}>Add Entry</Button>
             <Button onClick={async () => {
@@ -133,15 +138,19 @@ export default function InventoryProjectPage() {
               if (estimateLines.length === 0) return toast.error('Add at least one estimate entry')
               setEstimateSaving(true)
               try {
+                const notes = typeof biddingAmount === 'number' && !Number.isNaN(biddingAmount)
+                  ? `Bidding Amount: ${biddingAmount}`
+                  : undefined
                 const res = await saveEstimate({
                   name,
+                  notes,
                   lines: estimateLines.map((l) => ({ name: l.name, unit: l.unit || null, qty: Number(l.qty || 0), rate: Number(l.rate || 0) })),
                 })
-                toast.success(`Estimate saved (${res.stored})`)
-                setEstimateLines([]); setEstimateProjectName('')
+                toast.success(`Report saved (${res.stored})`)
+                setEstimateLines([]); setEstimateProjectName(''); setBiddingAmount(undefined)
               } catch (e: any) { toast.error(e.message || 'Failed to save estimate') }
               finally { setEstimateSaving(false) }
-            }} disabled={estimateSaving}>{estimateSaving ? 'Saving…' : 'Save Estimate'}</Button>
+            }} disabled={estimateSaving}>{estimateSaving ? 'Saving…' : 'Report'}</Button>
           </div>
         </div>
         <div className="mt-3 overflow-x-auto">
@@ -210,7 +219,7 @@ export default function InventoryProjectPage() {
                 {loadingSug && <div className="p-2 text-sm text-muted-foreground">Searching…</div>}
                 {!loadingSug && suggestions.length === 0 && (
                   <div className="p-2 text-sm">
-                    <div className="text-muted-foreground">Not in stock</div>
+                    <div className="text-muted-foreground">Item not available in stock</div>
                     <Button className="mt-1" size="sm" onClick={addFreeItem}>Add “{query.trim()}”</Button>
                   </div>
                 )}

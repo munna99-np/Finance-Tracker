@@ -6,6 +6,8 @@ import { useAccounts } from '../hooks/useAccounts'
 import { useCategories } from '../hooks/useCategories'
 import { useParties } from '../hooks/useParties'
 import { formatCurrency } from '../lib/format'
+import { printHtml } from '../lib/print'
+import { download } from '../lib/csv'
 
 type GroupRow = { key: string; name: string; count: number; inflow: number; outflow: number; net: number }
 
@@ -64,6 +66,110 @@ export default function ReportsPage() {
     return Array.from(map.values()).sort((a, b) => b.net - a.net)
   }, [txns, parties])
 
+  const selectedCategoryName = useMemo(() => {
+    if (!categoryId) return 'All categories'
+    return categories.find((c) => c.id === categoryId)?.name || 'Unknown category'
+  }, [categoryId, categories])
+
+  function exportPdf() {
+    const title = `Reports — ${scope === 'personal' ? 'Personal' : 'Work'} — ${selectedCategoryName}`
+    const section = (heading: string, rows: GroupRow[]) => `
+      <div class="card">
+        <div class="card-title">${heading}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th class="num">Count</th>
+              <th class="num">Inflow</th>
+              <th class="num">Outflow</th>
+              <th class="num">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(
+                (r) => `
+                  <tr>
+                    <td>${r.key === 'no-party' ? 'No Party' : r.name}</td>
+                    <td class=\"num\">${r.count}</td>
+                    <td class=\"num\">${formatCurrency(r.inflow)}</td>
+                    <td class=\"num\">${formatCurrency(r.outflow)}</td>
+                    <td class=\"num\"><strong>${formatCurrency(r.net)}</strong></td>
+                  </tr>`
+              )
+              .join('')}
+            ${rows.length === 0 ? `<tr><td class=\"muted\" colspan=\"5\">No data</td></tr>` : ''}
+          </tbody>
+        </table>
+      </div>`
+
+    const header = `
+      <div class=\"header\">
+        <div class=\"brand\">
+          <div style=\"width:10px;height:10px;border-radius:999px;background:var(--primary)\"></div>
+          <div>
+            <h1>Finance Tracker — Reports</h1>
+            <div class=\"muted\">Scope: ${scope} • ${selectedCategoryName}</div>
+          </div>
+        </div>
+        <div class=\"badge\">${new Date().toLocaleString()}</div>
+      </div>`
+
+    const html = `
+      ${header}
+      ${section('By Category', byCategory)}
+      ${section('By Account', byAccount)}
+      ${section('By Party', byParty)}
+    `
+    printHtml(title, html)
+  }
+
+  function exportExcel() {
+    const table = (heading: string, rows: GroupRow[]) => `
+      <h2>${heading}</h2>
+      <table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">
+        <thead>
+          <tr>
+            <th align=\"left\">Name</th>
+            <th align=\"right\">Count</th>
+            <th align=\"right\">Inflow</th>
+            <th align=\"right\">Outflow</th>
+            <th align=\"right\">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (r) => `
+                <tr>
+                  <td>${r.key === 'no-party' ? 'No Party' : r.name}</td>
+                  <td align=\"right\">${r.count}</td>
+                  <td align=\"right\">${r.inflow}</td>
+                  <td align=\"right\">${r.outflow}</td>
+                  <td align=\"right\">${r.net}</td>
+                </tr>`
+            )
+            .join('')}
+          ${rows.length === 0 ? `<tr><td colspan=\"5\">No data</td></tr>` : ''}
+        </tbody>
+      </table>`
+
+    const html = `<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Reports</title><style>:root{--primary:#1e3a8a;--ink:#0f172a;--muted:#64748b;--border:#dfe3e8;--row:#f8fafc}body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink)}.xlsx-heading{margin:14px 0 6px;font-size:12pt;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.xlsx-table{border-collapse:separate;border-spacing:0;width:100%;font-size:11pt}.xlsx-table thead th{background:var(--primary);color:#fff;text-align:left;font-weight:600;padding:8pt 10pt;border-right:1px solid rgba(255,255,255,.25)}.xlsx-table thead th:last-child{border-right:none}.xlsx-table tbody td{border-top:1px solid var(--border);padding:7pt 10pt}.xlsx-table tbody tr:nth-child(even){background:var(--row)}.xlsx-table .num{text-align:right}h1{font-size:14pt;margin:0 0 8pt}</style></head><body>
+      <h1>Reports — ${scope} — ${selectedCategoryName}</h1>
+      ${table('By Category', byCategory)}
+      <br/>
+      ${table('By Account', byAccount)}
+      <br/>
+      ${table('By Party', byParty)}
+    </body></html>`
+
+    download(
+      `reports_${scope}_${new Date().toISOString().slice(0, 10)}.xls`,
+      html,
+      'application/vnd.ms-excel;charset=utf-8'
+    )
+  }
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -87,6 +193,10 @@ export default function ReportsPage() {
               <Button size="sm" variant={scope === 'work' ? 'default' : 'outline'} onClick={() => setScope('work')}>Work</Button>
             </div>
           </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={exportExcel}>Export Excel</Button>
+            <Button size="sm" onClick={exportPdf}>Export PDF</Button>
+          </div>
         </div>
       </div>
 
@@ -96,7 +206,7 @@ export default function ReportsPage() {
         <div className="border rounded-md overflow-hidden">
           <div className="px-3 py-2 font-medium bg-muted/50">By Category</div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-[15px]">
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left p-2">Category</th>
@@ -108,7 +218,7 @@ export default function ReportsPage() {
               </thead>
               <tbody>
                 {byCategory.map((r) => (
-                  <tr key={r.key} className="border-t">
+                  <tr key={r.key} className="border-t hover:bg-muted/30">
                     <td className="p-2">{r.name}</td>
                     <td className="p-2 text-right">{r.count}</td>
                     <td className="p-2 text-right">{formatCurrency(r.inflow)}</td>
@@ -128,7 +238,7 @@ export default function ReportsPage() {
         <div className="border rounded-md overflow-hidden">
           <div className="px-3 py-2 font-medium bg-muted/50">By Account</div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-[15px]">
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left p-2">Account</th>
@@ -140,7 +250,7 @@ export default function ReportsPage() {
               </thead>
               <tbody>
                 {byAccount.map((r) => (
-                  <tr key={r.key} className="border-t">
+                  <tr key={r.key} className="border-t hover:bg-muted/30">
                     <td className="p-2">{r.name}</td>
                     <td className="p-2 text-right">{r.count}</td>
                     <td className="p-2 text-right">{formatCurrency(r.inflow)}</td>
@@ -160,7 +270,7 @@ export default function ReportsPage() {
         <div className="border rounded-md overflow-hidden md:col-span-2">
           <div className="px-3 py-2 font-medium bg-muted/50">By Party</div>
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-[15px]">
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left p-2">Party</th>
@@ -172,8 +282,8 @@ export default function ReportsPage() {
               </thead>
               <tbody>
                 {byParty.map((r) => (
-                  <tr key={r.key} className="border-t">
-                    <td className="p-2">{r.name}</td>
+                  <tr key={r.key} className="border-t hover:bg-muted/30">
+                    <td className="p-2">{r.key === 'no-party' ? 'No Party' : r.name}</td>
                     <td className="p-2 text-right">{r.count}</td>
                     <td className="p-2 text-right">{formatCurrency(r.inflow)}</td>
                     <td className="p-2 text-right">{formatCurrency(r.outflow)}</td>
@@ -193,4 +303,3 @@ export default function ReportsPage() {
     </div>
   )
 }
-
