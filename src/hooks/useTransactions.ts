@@ -12,40 +12,90 @@ export type TxFilters = {
   search?: string
 }
 
+function buildQuery(activeFilters: TxFilters) {
+  let query = supabase
+    .from('transactions')
+    .select('id,account_id,date,amount,qty,direction,scope,mode,category_id,party_id,notes')
+    .order('date', { ascending: false })
+
+  if (activeFilters.accountId) query = query.eq('account_id', activeFilters.accountId)
+  if (activeFilters.categoryId) {
+    if (activeFilters.categoryId === 'uncategorized') query = query.is('category_id', null)
+    else query = query.eq('category_id', activeFilters.categoryId)
+  }
+  if (activeFilters.partyId) query = query.eq('party_id', activeFilters.partyId)
+  if (activeFilters.scope) query = query.eq('scope', activeFilters.scope)
+  if (activeFilters.from) query = query.gte('date', activeFilters.from)
+  if (activeFilters.to) query = query.lte('date', activeFilters.to)
+  if (activeFilters.search) query = query.ilike('notes', `%${activeFilters.search}%`)
+
+  return query
+}
+
 export function useTransactions(filters: TxFilters = {}) {
   const [data, setData] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const deps = useMemo(() => JSON.stringify(filters), [filters])
-
-  const fetchData = async () => {
-    setLoading(true)
-    let q = supabase
-      .from('transactions')
-      .select('id,account_id,date,amount,qty,direction,scope,mode,category_id,party_id,notes')
-      .order('date', { ascending: false })
-
-    if (filters.accountId) q = q.eq('account_id', filters.accountId)
-    if (filters.categoryId) q = q.eq('category_id', filters.categoryId)
-    if (filters.partyId) q = q.eq('party_id', filters.partyId)
-    if (filters.scope) q = q.eq('scope', filters.scope)
-    if (filters.from) q = q.gte('date', filters.from)
-    if (filters.to) q = q.lte('date', filters.to)
-    if (filters.search) q = q.ilike('notes', `%${filters.search}%`)
-
-    const { data, error } = await q
-    if (error) setError(error.message)
-    setData((data as any) || [])
-    setLoading(false)
-  }
+  const serializedFilters = useMemo(() => JSON.stringify(filters), [filters])
 
   useEffect(() => {
-    ;(async () => {
-      await fetchData()
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deps])
+    let isMounted = true
+    const activeFilters = JSON.parse(serializedFilters) as TxFilters
 
-  return { data, loading, error, refetch: fetchData }
+    const fetch = async () => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const { data, error } = await buildQuery(activeFilters)
+        if (!isMounted) return
+
+        if (error) {
+          setError(error.message)
+          setData([])
+          return
+        }
+
+        setData((data as any) || [])
+      } catch (err: unknown) {
+        if (!isMounted) return
+        const message = err instanceof Error ? err.message : 'Failed to load transactions'
+        setError(message)
+        setData([])
+      } finally {
+        if (isMounted) setLoading(false)
+      }
+    }
+
+    fetch()
+
+    return () => {
+      isMounted = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serializedFilters])
+
+  const refetch = async () => {
+    const activeFilters = JSON.parse(serializedFilters) as TxFilters
+    setLoading(true)
+    setError(null)
+    try {
+      const { data, error } = await buildQuery(activeFilters)
+      if (error) {
+        setError(error.message)
+        setData([])
+      } else {
+        setData((data as any) || [])
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load transactions'
+      setError(message)
+      setData([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return { data, loading, error, refetch }
 }

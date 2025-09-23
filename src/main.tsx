@@ -1,28 +1,31 @@
 import './index.css'
 import { applyTheme } from './lib/settings'
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
 import { AuthProvider } from './lib/auth'
-import AppLayout from './routes/AppLayout'
-import DashboardPage from './routes/DashboardPage'
-import SignInPage from './routes/SignInPage'
-import TransactionsPage from './routes/TransactionsPage'
-import AccountsPage from './routes/AccountsPage'
-import CategoriesPage from './routes/CategoriesPage'
-import PartiesPage from './routes/PartiesPage'
-import ReportsPage from './routes/ReportsPage'
-import TransfersPage from './routes/TransfersPage'
-import StaffPage from './routes/StaffPage'
-import InventoryPage from './routes/InventoryPage'
-import InventoryItemsPage from './routes/InventoryItemsPage'
-import InventoryCategoriesPage from './routes/InventoryCategoriesPage'
-import InventoryPurchasesPage from './routes/InventoryPurchasesPage'
-import InventoryReportsPage from './routes/InventoryReportsPage'
-import InventoryStockPage from './routes/InventoryStockPage'
-import InventoryProjectPage from './routes/InventoryProjectPage'
+const AppLayout = lazy(() => import('./routes/AppLayout'))
+const DashboardPage = lazy(() => import('./routes/DashboardPage'))
+const SignInPage = lazy(() => import('./routes/SignInPage'))
+const TransactionsPage = lazy(() => import('./routes/TransactionsPage'))
+const AccountsPage = lazy(() => import('./routes/AccountsPage'))
+const CategoriesPage = lazy(() => import('./routes/CategoriesPage'))
+const PartiesPage = lazy(() => import('./routes/PartiesPage'))
+const ReportsPage = lazy(() => import('./routes/ReportsPage'))
+const TransfersPage = lazy(() => import('./routes/TransfersPage'))
+const StaffPage = lazy(() => import('./routes/StaffPage'))
+const StaffAttendanceReportPage = lazy(() => import('./routes/StaffAttendanceReportPage'))
+const InventoryPage = lazy(() => import('./routes/InventoryPage'))
+const InventoryItemsPage = lazy(() => import('./routes/InventoryItemsPage'))
+const InventoryCategoriesPage = lazy(() => import('./routes/InventoryCategoriesPage'))
+const InventoryPurchasesPage = lazy(() => import('./routes/InventoryPurchasesPage'))
+const InventoryReportsPage = lazy(() => import('./routes/InventoryReportsPage'))
+const InventoryStockPage = lazy(() => import('./routes/InventoryStockPage'))
+const InventoryProjectPage = lazy(() => import('./routes/InventoryProjectPage'))
+const InvoicePage = lazy(() => import('./routes/InvoicePage'))
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProtectedOutlet } from './lib/auth'
 
 const router = createBrowserRouter([
@@ -43,6 +46,8 @@ const router = createBrowserRouter([
           { path: 'parties', element: <PartiesPage /> },
           { path: 'reports', element: <ReportsPage /> },
           { path: 'staff', element: <StaffPage /> },
+          { path: 'staff/attendance-report', element: <StaffAttendanceReportPage /> },
+          { path: 'invoice', element: <InvoicePage /> },
           { path: 'inventory', element: <InventoryPage /> },
           { path: 'inventory/stock', element: <InventoryStockPage /> },
           { path: 'inventory/items', element: <InventoryItemsPage /> },
@@ -62,7 +67,17 @@ try { applyTheme() } catch {}
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
-      <RouterProvider router={router} />
+      <ErrorBoundary>
+        <Suspense
+          fallback={
+            <div className="min-h-[50vh] grid place-items-center text-sm text-muted-foreground">
+              Loading...
+            </div>
+          }
+        >
+          <RouterProvider router={router} />
+        </Suspense>
+      </ErrorBoundary>
       <Toaster richColors position="top-right" />
     </AuthProvider>
   </StrictMode>

@@ -57,6 +57,8 @@ export default function AppLayout() {
             <NavItem to="/parties" label="Parties" icon={IconParties} iconName="parties" />
             <NavItem to="/reports" label="Reports" icon={IconReports} iconName="reports" />
             <NavItem to="/staff" label="Staff" icon={IconAccounts} iconName="staff" />
+            <NavItem to="/staff/attendance-report" label="Attendance report" icon={IconReports} iconName="reports" />
+            <NavItem to="/invoice" label="Invoice" icon={IconAccounts} iconName="invoice" />
           </nav>
         )}
         <div className="mt-auto p-3 text-xs text-muted-foreground">© {new Date().getFullYear()}</div>

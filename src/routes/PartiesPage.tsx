@@ -11,6 +11,8 @@ import { useAccounts } from '../hooks/useAccounts'
 import { useCategories } from '../hooks/useCategories'
 import { useTransactions } from '../hooks/useTransactions'
 import { formatCurrency } from '../lib/format'
+import { printHtml } from '../lib/print'
+import { escapeHtml } from '../lib/utils'
 import { IconTransactions } from '../components/icons'
 
 type EditState = { id: string; name: string; phone: string | null; notes: string | null } | null
@@ -34,6 +36,110 @@ export default function PartiesPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold">Parties</h1>
         <Input className="h-9 w-60" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+      <div className="flex items-center justify-end">
+          <Button
+            variant="outline"
+            onClick={async () => {
+            const [partiesRes, txRes, accRes, catRes] = await Promise.all([
+              supabase.from('parties').select('id,name,phone,notes').order('name'),
+              supabase
+                .from('transactions')
+                .select('id,party_id,date,amount,direction,scope,account_id,category_id,notes')
+                .not('party_id', 'is', null)
+                .order('date', { ascending: true }),
+              supabase.from('accounts').select('id,name'),
+              supabase.from('categories').select('id,name'),
+            ])
+            if (partiesRes.error) return toast.error(partiesRes.error.message)
+            if (txRes.error) return toast.error(txRes.error.message)
+            if (accRes.error) return toast.error(accRes.error.message)
+            if (catRes.error) return toast.error(catRes.error.message)
+
+              const parties = (partiesRes.data as any[]) || []
+              const txns = (txRes.data as any[]) || []
+            const accounts = new Map<string, string>(((accRes.data as any[]) || []).map((a) => [a.id, a.name]))
+            const categories = new Map<string, string>(((catRes.data as any[]) || []).map((c) => [c.id, c.name]))
+
+            const byParty = new Map<string, any[]>()
+            for (const t of txns) {
+              const pid = t.party_id as string
+              if (!byParty.has(pid)) byParty.set(pid, [])
+              byParty.get(pid)!.push(t)
+            }
+
+            const sections: string[] = []
+            const sortedParties = parties.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+            for (const p of sortedParties) {
+              const rows = byParty.get(p.id) || []
+              if (rows.length === 0) continue
+              let totalIn = 0
+              let totalOut = 0
+              const body = rows
+                .map((t) => {
+                  const isIn = t.direction === 'in'
+                  const amt = isIn ? t.amount : Math.abs(t.amount)
+                  if (isIn) totalIn += amt
+                  else totalOut += amt
+                  const acct = accounts.get(t.account_id) || ''
+                  const cat = t.category_id ? categories.get(t.category_id) || '' : ''
+                  const dateStr = (t.date instanceof Date ? t.date.toISOString().slice(0, 10) : String(t.date))
+                  const type = isIn ? 'Received' : 'Given'
+                    return `<tr>
+                    <td>${escapeHtml(dateStr)}</td>
+                    <td>${escapeHtml(type)}</td>
+                    <td>${escapeHtml(t.scope)}</td>
+                    <td>${escapeHtml(acct)}</td>
+                    <td>${escapeHtml(cat)}</td>
+                    <td class='num'>${formatCurrency(amt)}</td>
+                    <td>${escapeHtml(t.notes ?? '')}</td>
+                  </tr>`
+                  })
+                  .join('')
+                const net = totalIn - totalOut
+                const section = `
+                  <div class="card">
+                  <div class="card-title">${escapeHtml(p.name)} ${p.phone ? `— ${escapeHtml(p.phone)}` : ''}</div>
+                  <div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Type</th>
+                          <th>Scope</th>
+                          <th>Account</th>
+                          <th>Category</th>
+                          <th class="num">Amount</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${body}
+                        <tr>
+                          <td colspan="5"><strong>Totals</strong></td>
+                          <td class="num"><strong>${formatCurrency(totalIn)} in / ${formatCurrency(totalOut)} out</strong></td>
+                          <td><strong>Net: ${formatCurrency(net)}</strong></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              `
+              sections.push(section)
+            }
+            const title = 'Party Payment History'
+            const html = `
+              <div class="header">
+                <div class="brand"><div class="badge">Report</div><h1>Parties</h1></div>
+                <div class="muted">${new Date().toLocaleString()}</div>
+              </div>
+              ${sections.join('')}
+            `
+            printHtml(title, html, { primary: '#2563EB', accent: '#10B981' })
+          }}
+        >
+          Download Payment History
+        </Button>
       </div>
       {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
 
@@ -181,6 +287,7 @@ function PartyActionDialog({ partyId, partyName, onCreated }: { partyId: string;
   const [type, setType] = useState<'payment_in' | 'payment_out' | 'purchase' | 'sale'>('payment_in')
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10))
   const [scope, setScope] = useState<'personal' | 'work'>('work')
+  const [activityScope, setActivityScope] = useState<'' | 'personal' | 'work'>('')
   const [accountId, setAccountId] = useState<string>('')
   const [categoryId, setCategoryId] = useState<string>('')
   const [amount, setAmount] = useState<number | undefined>(undefined)
@@ -189,7 +296,7 @@ function PartyActionDialog({ partyId, partyName, onCreated }: { partyId: string;
   const [saving, setSaving] = useState(false)
 
   const { data: categories } = useCategories(scope)
-  const { data: partyTxns, error: txError, refetch: refetchTx } = useTransactions({ partyId })
+  const { data: partyTxns, error: txError, refetch: refetchTx } = useTransactions({ partyId, scope: activityScope || undefined })
   const showCategory = type === 'purchase' || type === 'sale'
   const direction: 'in' | 'out' = (type === 'payment_in' || type === 'sale') ? 'in' : 'out'
 
@@ -243,7 +350,7 @@ function PartyActionDialog({ partyId, partyName, onCreated }: { partyId: string;
           <Button size="sm" variant={tab === 'activity' ? 'default' : 'outline'} onClick={() => setTab('activity')}>Activity</Button>
         </div>
         {tab === 'add' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
           <div>
             <label className="text-sm">Type</label>
             <select className="h-9 w-full border rounded-md px-2" value={type} onChange={(e) => setType(e.target.value as any)}>
@@ -301,7 +408,13 @@ function PartyActionDialog({ partyId, partyName, onCreated }: { partyId: string;
         ) : (
           <div>
             {txError && <div className="text-sm text-red-600 mb-2">{txError}</div>}
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="inline-flex gap-2">
+                <Button size="sm" variant={activityScope === 'personal' ? 'default' : 'outline'} onClick={() => setActivityScope('personal')}>Personal</Button>
+                <Button size="sm" variant={activityScope === 'work' ? 'default' : 'outline'} onClick={() => setActivityScope('work')}>Work</Button>
+                <Button size="sm" variant={activityScope === '' ? 'default' : 'outline'} onClick={() => setActivityScope('')}>All</Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
               {(() => {
                 const totals = partyTxns.reduce((acc: any, t: any) => {
                   if (t.direction === 'in') acc.in += t.amount; else if (t.direction === 'out') acc.out += Math.abs(t.amount)
@@ -324,6 +437,7 @@ function PartyActionDialog({ partyId, partyName, onCreated }: { partyId: string;
                   </>
                 )
               })()}
+              </div>
             </div>
             <div className="max-h-80 overflow-auto border rounded-md">
               <table className="min-w-full text-sm">

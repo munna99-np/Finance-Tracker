@@ -279,10 +279,23 @@ create table if not exists staff_salaries (
 create index if not exists idx_staff_sal_owner_period on staff_salaries(owner, period);
 create index if not exists idx_staff_sal_staff on staff_salaries(staff_id);
 
+create table if not exists staff_attendance (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid not null references staff(id) on delete cascade,
+  date date not null,
+  status text not null check (status in ('present','absent','leave')),
+  notes text,
+  owner uuid not null default auth.uid() references profiles(id) on delete cascade,
+  unique (owner, staff_id, date)
+);
+create index if not exists idx_staff_att_owner_date on staff_attendance(owner, date);
+create index if not exists idx_staff_att_staff on staff_attendance(staff_id);
+
 -- RLS
 alter table staff enable row level security;
 alter table staff_advances enable row level security;
 alter table staff_salaries enable row level security;
+alter table staff_attendance enable row level security;
 
 -- Policies
 create policy sel_staff_owner on staff for select using (owner = auth.uid());
@@ -299,3 +312,11 @@ create policy sel_staff_sal_owner on staff_salaries for select using (owner = au
 create policy ins_staff_sal_owner on staff_salaries for insert with check (owner = auth.uid());
 create policy upd_staff_sal_owner on staff_salaries for update using (owner = auth.uid());
 create policy del_staff_sal_owner on staff_salaries for delete using (owner = auth.uid());
+
+create policy sel_staff_att_owner on staff_attendance for select using (owner = auth.uid());
+
+create policy ins_staff_att_owner on staff_attendance for insert with check (owner = auth.uid());
+
+create policy upd_staff_att_owner on staff_attendance for update using (owner = auth.uid());
+
+create policy del_staff_att_owner on staff_attendance for delete using (owner = auth.uid());

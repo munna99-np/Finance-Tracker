@@ -26,7 +26,8 @@ export default function TransferForm({ onCreated }: { onCreated?: () => void }) 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      date: new Date(),
+      // Use ISO string for input[type=date]; Zod coerces on submit
+      date: (prefill.date as any) || new Date().toISOString().slice(0, 10),
       amount: prefill.amount ?? undefined,
       from_account: prefill.from_account ?? undefined,
       to_account: prefill.to_account ?? undefined,
@@ -51,7 +52,7 @@ export default function TransferForm({ onCreated }: { onCreated?: () => void }) 
     const { error } = await supabase.from('transfers').insert(payload as any)
     if (error) return toast.error(error.message)
     toast.success('Transfer added')
-    form.reset({ date: new Date() } as any)
+    form.reset({ date: new Date().toISOString().slice(0, 10) } as any)
     onCreated?.()
   }
 
@@ -66,7 +67,7 @@ export default function TransferForm({ onCreated }: { onCreated?: () => void }) 
         <select className="h-9 w-full border rounded-md px-2" {...form.register('from_account')}> 
           <option value="">Select account</option>
           {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
+            <option key={a.id} value={a.id} disabled={a.id === form.watch('to_account')}>{a.name}</option>
           ))}
         </select>
       </div>
@@ -75,13 +76,13 @@ export default function TransferForm({ onCreated }: { onCreated?: () => void }) 
         <select className="h-9 w-full border rounded-md px-2" {...form.register('to_account')}> 
           <option value="">Select account</option>
           {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
+            <option key={a.id} value={a.id} disabled={a.id === form.watch('from_account')}>{a.name}</option>
           ))}
         </select>
       </div>
       <div>
         <label className="text-sm">Amount</label>
-        <MoneyInput value={form.watch('amount') as any} onChange={(v) => form.setValue('amount', v as any)} />
+        <MoneyInput value={form.watch('amount') as any} onChange={(v) => form.setValue('amount', v as any, { shouldValidate: true })} />
       </div>
       <div className="md:col-span-2">
         <label className="text-sm">Notes</label>
@@ -94,4 +95,3 @@ export default function TransferForm({ onCreated }: { onCreated?: () => void }) 
     </form>
   )
 }
-
