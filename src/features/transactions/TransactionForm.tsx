@@ -22,14 +22,19 @@ type FormValues = z.infer<typeof formSchema>
 
 const PARTY_REQUIRED_FOR = new Set(['loan', 'sapati', 'bills', 'salary'])
 
-export default function TransactionForm({ onCreated }: { onCreated?: () => void }) {
+export default function TransactionForm({ onCreated, initialScope }: { onCreated?: () => void; initialScope?: 'personal' | 'work' }) {
   const navigate = useNavigate()
   const { data: accounts } = useAccounts()
   const [submitting, setSubmitting] = useState(false)
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { direction: 'out', scope: 'personal', date: new Date() } as any,
+    defaultValues: { direction: 'out', scope: initialScope ?? 'personal', date: new Date() } as any,
   })
+  useEffect(() => {
+    if (!initialScope) return
+    form.setValue('scope', initialScope)
+  }, [initialScope, form])
+
   const scope = form.watch('scope') as 'personal' | 'work' | undefined
   const { data: categories } = useCategories(scope)
   const { data: parties } = useParties()

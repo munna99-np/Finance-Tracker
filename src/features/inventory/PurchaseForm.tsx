@@ -3,6 +3,7 @@ import { Input } from '../../components/ui/input'
 import { Button } from '../../components/ui/button'
 import { usePartySearch, useInvItems } from '../../hooks/useInventory'
 import { supabase } from '../../lib/supabaseClient'
+import { recordPurchaseLedger } from '../../services/inventoryItems'
 import { toast } from 'sonner'
 import MoneyInput from '../../components/fields/MoneyInput'
 
@@ -44,6 +45,7 @@ export default function PurchaseForm({ onSaved, subcategoryId, partySearch, item
     const valid = lines.filter((l) => l.item_id && Number(l.qty) > 0)
     if (valid.length === 0) return toast.error('Add at least one line with qty')
     setSaving(true)
+    let ledgerFailure: string | null = null
     // Snapshot current stock for involved items (to detect absence of DB triggers)
     const itemIds = Array.from(new Set(valid.map((l) => l.item_id)))
     let before: Record<string, number> = {}
@@ -110,8 +112,26 @@ export default function PurchaseForm({ onSaved, subcategoryId, partySearch, item
       }
     } catch {}
 
+    try {
+      await recordPurchaseLedger({
+        partyId,
+        amount: Number(total.toFixed(2)),
+        paymentMethod: payment || null,
+        entryDate: date,
+        notes: notes || null,
+        metadata: invoice ? { invoiceNo: invoice } : undefined,
+      })
+    } catch (error) {
+      console.error('Failed to record purchase ledger', error)
+      ledgerFailure = error instanceof Error ? error.message : 'Ledger update failed'
+    }
+
     setSaving(false)
-    toast.success('Purchase recorded')
+    if (ledgerFailure) {
+      toast.error(`Purchase saved but ledger update failed: ${ledgerFailure}`)
+    } else {
+      toast.success('Purchase recorded')
+    }
     setPartyId(''); setInvoice(''); setPayment(''); setTaxPercent(0); setTaxAmount(0); setNotes('')
     setLines([{ item_id: '' }])
     onSaved?.()
@@ -224,3 +244,4 @@ export default function PurchaseForm({ onSaved, subcategoryId, partySearch, item
     </div>
   )
 }
+

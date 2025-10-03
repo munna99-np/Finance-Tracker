@@ -45,6 +45,9 @@ export default function StaffPage() {
         ))}
         <div className="ml-auto flex items-center gap-2">
           <Button asChild variant="outline">
+            <Link to="/staff/attendance">Mark attendance</Link>
+          </Button>
+          <Button asChild variant="outline">
             <Link to="/staff/attendance-report">Attendance report</Link>
           </Button>
           <select className="h-9 border rounded-md px-2" value={selectedStaff} onChange={(e) => setSelectedStaff(e.target.value)}>

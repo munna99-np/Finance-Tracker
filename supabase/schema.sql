@@ -181,6 +181,49 @@ create table if not exists inventory_purchase_items (
   unique (purchase_id, item_id)
 );
 
+create table if not exists inventory_sale_invoices (
+  id uuid primary key default gen_random_uuid(),
+  invoice_no text not null,
+  invoice_date timestamptz not null default now(),
+  party_name text,
+  payment_method text not null check (payment_method in ('cash','online','cheque','credit')),
+  status text not null check (status in ('paid','pending','failed')),
+  total_amount numeric(14,2) not null default 0,
+  items jsonb not null default '[]'::jsonb,
+  notes text,
+  created_at timestamptz default now(),
+  owner uuid not null default auth.uid() references profiles(id) on delete cascade,
+  unique (owner, invoice_no)
+);
+
+create index if not exists idx_inventory_sale_invoices_owner_date on inventory_sale_invoices(owner, invoice_date desc);
+
+-- Customer/Party ledger to persist sales, purchases, payments, and adjustments per party
+create table if not exists inventory_party_ledger (
+  id uuid primary key default gen_random_uuid(),
+  party_id uuid not null references parties(id) on delete cascade,
+  entry_date date not null default current_date,
+  entry_type text not null check (entry_type in ('sale','purchase','payment','adjustment')),
+  direction text not null check (direction in ('in','out')),
+  amount numeric(14,2) not null check (amount >= 0),
+  payment_method text,
+  reference_table text,
+  reference_id uuid,
+  notes text,
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  owner uuid not null default auth.uid() references profiles(id) on delete cascade
+);
+
+create index if not exists idx_inventory_party_ledger_party_date on inventory_party_ledger(party_id, entry_date desc);
+create index if not exists idx_inventory_party_ledger_reference on inventory_party_ledger(reference_table, reference_id);
+create index if not exists idx_inventory_party_ledger_owner_date on inventory_party_ledger(owner, entry_date desc);
+comment on table inventory_party_ledger is 'Stores per-party sales, purchases, payments, and manual adjustments for the inventory ledger feature';
+comment on column inventory_party_ledger.entry_type is 'Ledger entry classification (sale, purchase, payment, adjustment)';
+comment on column inventory_party_ledger.direction is 'Indicates whether the entry increases (in) or decreases (out) the customer balance';
+comment on column inventory_party_ledger.payment_method is 'Original payment medium captured for the entry (cash, credit, cheque, etc.)';
+comment on column inventory_party_ledger.metadata is 'Additional JSON metadata such as invoice numbers or billing status';
+
 -- Stock adjustment triggers
 create or replace function public.fn_inventory_adjust_stock() returns trigger as $$
 begin
@@ -216,6 +259,8 @@ alter table inventory_subcategories enable row level security;
 alter table inventory_items enable row level security;
 alter table inventory_purchases enable row level security;
 alter table inventory_purchase_items enable row level security;
+alter table inventory_sale_invoices enable row level security;
+alter table inventory_party_ledger enable row level security;
 
 do $$ begin
   if not exists (
@@ -320,3 +365,64 @@ create policy ins_staff_att_owner on staff_attendance for insert with check (own
 create policy upd_staff_att_owner on staff_attendance for update using (owner = auth.uid());
 
 create policy del_staff_att_owner on staff_attendance for delete using (owner = auth.uid());
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where polname = 'sel_inventory_sale_invoices_owner'
+  ) then
+    create policy sel_inventory_sale_invoices_owner on inventory_sale_invoices for select using (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'ins_inventory_sale_invoices_owner'
+  ) then
+    create policy ins_inventory_sale_invoices_owner on inventory_sale_invoices for insert with check (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'upd_inventory_sale_invoices_owner'
+  ) then
+    create policy upd_inventory_sale_invoices_owner on inventory_sale_invoices for update using (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'del_inventory_sale_invoices_owner'
+  ) then
+    create policy del_inventory_sale_invoices_owner on inventory_sale_invoices for delete using (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'sel_inventory_party_ledger_owner'
+  ) then
+    create policy sel_inventory_party_ledger_owner on inventory_party_ledger for select using (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'ins_inventory_party_ledger_owner'
+  ) then
+    create policy ins_inventory_party_ledger_owner on inventory_party_ledger for insert with check (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'upd_inventory_party_ledger_owner'
+  ) then
+    create policy upd_inventory_party_ledger_owner on inventory_party_ledger for update using (owner = auth.uid());
+  end if;
+  if not exists (
+    select 1 from pg_policies where polname = 'del_inventory_party_ledger_owner'
+  ) then
+    create policy del_inventory_party_ledger_owner on inventory_party_ledger for delete using (owner = auth.uid());
+  end if;
+end $$;
+

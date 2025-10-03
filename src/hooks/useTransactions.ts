@@ -7,6 +7,8 @@ export type TxFilters = {
   categoryId?: string
   partyId?: string
   scope?: 'personal' | 'work'
+  direction?: 'in' | 'out' | 'transfer'
+  mode?: string
   from?: string
   to?: string
   search?: string
@@ -25,6 +27,8 @@ function buildQuery(activeFilters: TxFilters) {
   }
   if (activeFilters.partyId) query = query.eq('party_id', activeFilters.partyId)
   if (activeFilters.scope) query = query.eq('scope', activeFilters.scope)
+  if (activeFilters.direction) query = query.eq('direction', activeFilters.direction)
+  if (activeFilters.mode) query = query.eq('mode', activeFilters.mode)
   if (activeFilters.from) query = query.gte('date', activeFilters.from)
   if (activeFilters.to) query = query.lte('date', activeFilters.to)
   if (activeFilters.search) query = query.ilike('notes', `%${activeFilters.search}%`)

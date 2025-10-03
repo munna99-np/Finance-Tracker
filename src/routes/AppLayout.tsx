@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+﻿import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { Button } from '../components/ui/button'
 import { useAuth } from '../lib/auth'
@@ -57,11 +57,12 @@ export default function AppLayout() {
             <NavItem to="/parties" label="Parties" icon={IconParties} iconName="parties" />
             <NavItem to="/reports" label="Reports" icon={IconReports} iconName="reports" />
             <NavItem to="/staff" label="Staff" icon={IconAccounts} iconName="staff" />
+            <NavItem to="/staff/attendance" label="Attendance" icon={IconReports} iconName="attendance" />
             <NavItem to="/staff/attendance-report" label="Attendance report" icon={IconReports} iconName="reports" />
             <NavItem to="/invoice" label="Invoice" icon={IconAccounts} iconName="invoice" />
           </nav>
         )}
-        <div className="mt-auto p-3 text-xs text-muted-foreground">© {new Date().getFullYear()}</div>
+        <div className="mt-auto p-3 text-xs text-muted-foreground">Ac {new Date().getFullYear()}</div>
       </aside>
 
       {/* Content */}
