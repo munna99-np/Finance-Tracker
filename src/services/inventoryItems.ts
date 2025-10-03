@@ -497,6 +497,8 @@ export async function listPartyLedgerSummaries(): Promise<PartyLedgerSummary[]> 
     entries.sort((a, b) => (a.entryDate < b.entryDate ? 1 : a.entryDate > b.entryDate ? -1 : 0))
     return computePartyLedgerSummary(party, entries)
   })
+  return summaries
+}
 
 export async function listAllCustomerLedgerEntries(params: CustomerLedgerQuery = {}): Promise<{ rows: CustomerLedgerFeedEntry[]; total: number }> {
   const limit = params.limit && params.limit > 0 ? params.limit : 50

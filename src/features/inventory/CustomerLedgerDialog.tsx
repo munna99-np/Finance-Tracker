@@ -118,6 +118,17 @@ export default function CustomerLedgerDialog({ open, onOpenChange }: CustomerLed
       ])
       setEntries(rows)
       setSelectedSummary(refreshedSummary)
+      setSummaries((prev) => {
+        let found = false
+        const next = prev.map((current) => {
+          if (current.partyId === refreshedSummary.partyId) {
+            found = true
+            return refreshedSummary
+          }
+          return current
+        })
+        return found ? next : [...next, refreshedSummary]
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load ledger entries')
     } finally {
@@ -162,8 +173,8 @@ export default function CustomerLedgerDialog({ open, onOpenChange }: CustomerLed
     <Dialog open={open} onOpenChange={closeDialog}>
       <DialogPortal>
         <DialogOverlay className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
-        <DialogContent className="fixed top-1/2 left-1/2 w-[95vw] max-w-6xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-white p-0 shadow-2xl">
-          <div className="flex h-full flex-col">
+        <DialogContent className="fixed top-1/2 left-1/2 w-[95vw] max-w-6xl max-h-[92vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border bg-white p-0 shadow-2xl">
+          <div className="flex h-full min-h-0 flex-col">
             <div className="border-b px-6 py-4">
               <div className="flex items-center justify-between gap-3">
                 <DialogTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
@@ -192,16 +203,18 @@ export default function CustomerLedgerDialog({ open, onOpenChange }: CustomerLed
               </div>
             </div>
 
-            <div className="overflow-y-auto px-6 py-6">
+            <div className="flex-1 overflow-y-auto px-6 py-6">
               {!selectedSummary ? (
                 <div className="space-y-5">
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search customers by name"
-                    className="h-10"
-                  />
-                  {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+                  <div className="sticky top-0 z-10 space-y-3 bg-white pb-4">
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search customers by name"
+                      className="h-10"
+                    />
+                    {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+                  </div>
                   {loading ? (
                     <div className="grid place-items-center py-16 text-muted-foreground">
                       <Loader2 className="h-6 w-6 animate-spin" />
@@ -253,7 +266,7 @@ export default function CustomerLedgerDialog({ open, onOpenChange }: CustomerLed
                 </div>
               ) : (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-white pb-4">
                     <div>
                       <button
                         type="button"

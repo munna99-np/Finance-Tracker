@@ -7,6 +7,10 @@ import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Download, FileText, RefreshCcw,
 import type { LucideIcon } from 'lucide-react'
 import { useAccounts } from '../hooks/useAccounts'
 import { useTransfers } from '../hooks/useTransfers'
+import { useTransactions } from '../hooks/useTransactions'
+import { useCategories } from '../hooks/useCategories'
+import { useParties } from '../hooks/useParties'
+import type { Transaction } from '../types/transactions'
 import { formatCurrency } from '../lib/format'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -17,8 +21,9 @@ type StatementRow = {
   date: Date
   direction: 'in' | 'out'
   amount: number
-  otherAccount: string
+  counterparty: string
   notes?: string | null
+  kind: 'transfer' | 'transaction'
 }
 
 type StatementSummary = {
@@ -27,10 +32,12 @@ type StatementSummary = {
   outgoingTotal: number
   net: number
   balance: number
-  lastTransfer?: Date
-  firstTransfer?: Date
-  largestTransfer: number
+  lastEntry?: Date
+  firstEntry?: Date
+  largestEntry: number
+  entryCount: number
   transferCount: number
+  transactionCount: number
 }
 
 export default function AccountStatementPage() {
@@ -49,6 +56,35 @@ export default function AccountStatementPage() {
     search: deferredSearch.trim() ? deferredSearch.trim() : undefined,
     limit: 1000,
   })
+  const {
+    data: transactions,
+    loading: transactionsLoading,
+    error: transactionsError,
+    refetch: refetchTransactions,
+  } = useTransactions({
+    accountId: accountId || undefined,
+    from: fromDate || undefined,
+    to: toDate || undefined,
+    search: deferredSearch.trim() ? deferredSearch.trim() : undefined,
+  })
+  const { data: categories } = useCategories()
+  const { data: parties } = useParties()
+
+  const categoryLookup = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const category of categories ?? []) {
+      if (category?.id) map.set(category.id, category.name)
+    }
+    return map
+  }, [categories])
+
+  const partyLookup = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const party of parties ?? []) {
+      if (party?.id) map.set(party.id, party.name)
+    }
+    return map
+  }, [parties])
 
   const account = useMemo(() => accounts.find((acc) => acc.id === accountId), [accounts, accountId])
 
@@ -62,33 +98,62 @@ export default function AccountStatementPage() {
     const opening = account?.opening_balance ?? 0
     const accountNameLookup = new Map(accounts.map((acc) => [acc.id, acc.name]))
 
-    const rows: StatementRow[] = transfers.map((transfer) => {
+    const rows: StatementRow[] = []
+    let transferCount = 0
+    let transactionCount = 0
+
+    for (const transfer of transfers ?? []) {
       const rawDate = transfer.date instanceof Date ? transfer.date : new Date(transfer.date)
       const date = Number.isNaN(rawDate.getTime()) ? new Date() : rawDate
       const amount = Math.abs(Number(transfer.amount) || 0)
+      if (!Number.isFinite(amount) || amount === 0) continue
       const incoming = transfer.to_account === accountId
       const otherId = incoming ? transfer.from_account : transfer.to_account
       const otherAccount = accountNameLookup.get(otherId) ?? 'Unlinked account'
-      return {
-        id: transfer.id,
+      const counterparty = incoming ? `Transfer from ${otherAccount}` : `Transfer to ${otherAccount}`
+      rows.push({
+        id: `transfer-${transfer.id}`,
         date,
         direction: incoming ? 'in' : 'out',
         amount,
-        otherAccount,
+        counterparty,
         notes: transfer.notes,
-      }
-    })
+        kind: 'transfer',
+      })
+      transferCount += 1
+    }
+
+    for (const tx of transactions ?? []) {
+      if (!tx) continue
+      const direction = tx.direction === 'in' ? 'in' : tx.direction === 'out' ? 'out' : undefined
+      if (!direction) continue
+      const rawDate = tx.date instanceof Date ? tx.date : new Date(tx.date as any)
+      const date = Number.isNaN(rawDate.getTime()) ? new Date() : rawDate
+      const amount = Math.abs(Number(tx.amount) || 0)
+      if (!Number.isFinite(amount) || amount === 0) continue
+      const counterparty = describeTransaction(tx, categoryLookup, partyLookup)
+      rows.push({
+        id: `transaction-${tx.id}`,
+        date,
+        direction,
+        amount,
+        counterparty,
+        notes: tx.notes,
+        kind: 'transaction',
+      })
+      transactionCount += 1
+    }
 
     rows.sort((a, b) => b.date.getTime() - a.date.getTime())
 
     let incomingTotal = 0
     let outgoingTotal = 0
-    let largestTransfer = 0
+    let largestEntry = 0
 
     for (const row of rows) {
       if (row.direction === 'in') incomingTotal += row.amount
       else outgoingTotal += row.amount
-      if (row.amount > largestTransfer) largestTransfer = row.amount
+      if (row.amount > largestEntry) largestEntry = row.amount
     }
 
     const net = incomingTotal - outgoingTotal
@@ -100,21 +165,25 @@ export default function AccountStatementPage() {
       outgoingTotal,
       net,
       balance,
-      lastTransfer: rows[0]?.date,
-      firstTransfer: rows.length > 0 ? rows[rows.length - 1].date : undefined,
-      largestTransfer,
-      transferCount: rows.length,
+      lastEntry: rows[0]?.date,
+      firstEntry: rows.length > 0 ? rows[rows.length - 1].date : undefined,
+      largestEntry,
+      entryCount: rows.length,
+      transferCount,
+      transactionCount,
     }
 
     return { timeline: rows, summary }
-  }, [account, accounts, transfers, accountId])
+  }, [account, accounts, transfers, transactions, accountId, categoryLookup, partyLookup])
 
-  const loading = accountsLoading || transfersLoading
-  const errorMessage = accountsError || transfersError
+  const loading = accountsLoading || transfersLoading || transactionsLoading
+  const errorParts = [accountsError, transfersError, transactionsError].filter(Boolean) as string[]
+  const errorMessage = errorParts.length > 0 ? errorParts.join(' | ') : null
 
   const refreshPage = () => {
     refetchAccounts()
     refetchTransfers()
+    refetchTransactions()
   }
 
   const clearFilters = () => {
@@ -129,9 +198,9 @@ export default function AccountStatementPage() {
       const end = toDate ? formatIsoDate(toDate) : 'Today'
       return `${start} to ${end}`
     }
-    if (summary.transferCount > 0) {
-      const start = summary.firstTransfer ? formatDateDisplay(summary.firstTransfer) : 'First record'
-      const end = summary.lastTransfer ? formatDateDisplay(summary.lastTransfer) : 'Latest record'
+    if (summary.entryCount > 0) {
+      const start = summary.firstEntry ? formatDateDisplay(summary.firstEntry) : 'First record'
+      const end = summary.lastEntry ? formatDateDisplay(summary.lastEntry) : 'Latest record'
       return `${start} to ${end}`
     }
     return emptyLabel
@@ -139,6 +208,10 @@ export default function AccountStatementPage() {
 
   const periodLabel = buildPeriodLabel('All activity')
   const pdfPeriodLabel = buildPeriodLabel('All recorded activity')
+  const activityHeadline =
+    summary.entryCount > 0
+      ? `${summary.entryCount} entr${summary.entryCount === 1 ? 'y' : 'ies'} recorded (${summary.transactionCount} transaction${summary.transactionCount === 1 ? '' : 's'}, ${summary.transferCount} transfer${summary.transferCount === 1 ? '' : 's'}).`
+      : 'No account activity recorded yet.'
 
   const handleDownloadPdf = () => {
     if (!account) return
@@ -153,7 +226,11 @@ export default function AccountStatementPage() {
     doc.setTextColor(80)
     doc.text(`Generated on ${formatDateTime(new Date())}`, 40, 82)
     doc.text(`Period: ${pdfPeriodLabel}`, 40, 100)
-    doc.text(`Transfers: ${summary.transferCount}`, 40, 118)
+    doc.text(
+      `Entries: ${summary.entryCount} (Transactions: ${summary.transactionCount}, Transfers: ${summary.transferCount})`,
+      40,
+      118,
+    )
 
     autoTable(doc, {
       startY: 140,
@@ -177,7 +254,7 @@ export default function AccountStatementPage() {
 
     if (timeline.length === 0) {
       doc.setTextColor(100)
-      doc.text('No transfers recorded in this period.', 40, nextY)
+      doc.text('No activity recorded in this period.', 40, nextY)
     } else {
       autoTable(doc, {
         startY: nextY,
@@ -185,7 +262,7 @@ export default function AccountStatementPage() {
         body: timeline.map((row) => [
           formatDateDisplay(row.date),
           row.direction === 'in' ? 'Incoming' : 'Outgoing',
-          row.otherAccount,
+          row.counterparty,
           formatCurrency(row.amount),
           row.notes || '',
         ]),
@@ -251,14 +328,12 @@ export default function AccountStatementPage() {
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.25em] text-white/60">Account statement</p>
             <h1 className="text-3xl font-semibold md:text-4xl">{account?.name || 'Loading account...'}</h1>
-            <p className="text-sm text-white/70">
-              Statement period: {periodLabel}. {summary.transferCount} transfer{summary.transferCount === 1 ? '' : 's'} recorded.
-            </p>
+            <p className="text-sm text-white/70">Statement period: {periodLabel}. {activityHeadline}</p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatementStat icon={ArrowDownLeft} label="Incoming" value={formatCurrency(summary.incomingTotal)} helper="Credited via transfers" />
-            <StatementStat icon={ArrowUpRight} label="Outgoing" value={formatCurrency(summary.outgoingTotal)} helper="Debited via transfers" />
+            <StatementStat icon={ArrowDownLeft} label="Incoming" value={formatCurrency(summary.incomingTotal)} helper="Total credits from transfers & transactions" />
+            <StatementStat icon={ArrowUpRight} label="Outgoing" value={formatCurrency(summary.outgoingTotal)} helper="Total debits from transfers & transactions" />
             <StatementStat
               icon={TrendingUp}
               label="Net movement"
@@ -285,8 +360,8 @@ export default function AccountStatementPage() {
 
       <Card className="border border-slate-200/70 bg-white/95 shadow-sm">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-base font-semibold text-slate-900">Filter transfers</CardTitle>
-          <p className="text-xs text-muted-foreground">Choose a date range or search through transfer notes to refine the statement.</p>
+          <CardTitle className="text-base font-semibold text-slate-900">Filter activity</CardTitle>
+          <p className="text-xs text-muted-foreground">Choose a date range or search notes to refine the combined transfer and transaction history.</p>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-end gap-3">
@@ -336,12 +411,12 @@ export default function AccountStatementPage() {
                   Closing balance <span className="font-semibold text-slate-900">{formatCurrency(summary.balance)}</span>
                 </li>
                 <li>
-                  Largest transfer <span className="font-semibold text-slate-900">{formatCurrency(summary.largestTransfer)}</span>
+                  Largest entry <span className="font-semibold text-slate-900">{formatCurrency(summary.largestEntry)}</span>
                 </li>
                 <li>
-                  Last transfer{' '}
+                  Last activity{' '}
                   <span className="font-semibold text-slate-900">
-                    {summary.lastTransfer ? formatDateDisplay(summary.lastTransfer) : 'Not recorded'}
+                    {summary.lastEntry ? formatDateDisplay(summary.lastEntry) : 'Not recorded'}
                   </span>
                 </li>
               </ul>
@@ -352,19 +427,19 @@ export default function AccountStatementPage() {
         <Card className="border border-slate-200/70 bg-white/95 shadow-sm">
           <CardHeader className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <CardTitle className="text-base font-semibold text-slate-900">Transfer history</CardTitle>
-              <p className="text-xs text-muted-foreground">Newest first - {summary.transferCount} item{summary.transferCount === 1 ? '' : 's'}</p>
+              <CardTitle className="text-base font-semibold text-slate-900">Account activity</CardTitle>
+              <p className="text-xs text-muted-foreground">Newest first - {summary.entryCount} item{summary.entryCount === 1 ? '' : 's'}</p>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {timeline.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200/70 bg-slate-50 px-4 py-6 text-center text-sm text-muted-foreground">
-                No transfers found for the selected filters.
+                No account activity found for the selected filters.
               </div>
             )}
 
             {timeline.map((row) => (
-              <TransferTimelineRow key={`${row.id}-${row.direction}`} row={row} />
+              <StatementTimelineRow key={row.id} row={row} />
             ))}
           </CardContent>
         </Card>
@@ -412,8 +487,9 @@ function StatementStat({
   )
 }
 
-function TransferTimelineRow({ row }: { row: StatementRow }) {
+function StatementTimelineRow({ row }: { row: StatementRow }) {
   const incoming = row.direction === 'in'
+  const typeLabel = row.kind === 'transfer' ? 'Transfer' : 'Transaction'
 
   return (
     <div className="flex items-center gap-4 rounded-2xl border border-slate-200/70 bg-white/95 px-4 py-3 shadow-sm transition hover:border-indigo-200">
@@ -422,19 +498,48 @@ function TransferTimelineRow({ row }: { row: StatementRow }) {
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <p className="truncate text-sm font-semibold text-slate-900">{row.otherAccount}</p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900">{row.counterparty}</p>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="rounded-full border border-slate-200 px-2 py-[1px] uppercase tracking-wide">{typeLabel}</span>
+              <span>{formatDateDisplay(row.date)}</span>
+            </div>
+          </div>
           <span className={clsx('whitespace-nowrap text-sm font-semibold', incoming ? 'text-emerald-600' : 'text-rose-600')}>
             {incoming ? '+' : '-'}
             {formatCurrency(row.amount)}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {formatDateDisplay(row.date)}
-          {row.notes ? ` - ${row.notes}` : ''}
-        </p>
+        {row.notes && <p className="text-xs text-muted-foreground">{row.notes}</p>}
       </div>
     </div>
   )
+}
+
+function describeTransaction(
+  tx: Transaction,
+  categoryLookup: Map<string, string>,
+  partyLookup: Map<string, string>,
+): string {
+  const partyName = tx.party_id ? partyLookup.get(tx.party_id) ?? null : null
+  const categoryName = tx.category_id ? categoryLookup.get(tx.category_id) ?? null : null
+  const mode = tx.mode?.trim() ?? ''
+
+  if (tx.direction === 'in') {
+    if (partyName?.trim()) return `Received from ${partyName.trim()}`
+    if (categoryName?.trim()) return `Income - ${categoryName.trim()}`
+    if (mode) return `Income via ${mode}`
+    return 'Incoming transaction'
+  }
+
+  if (tx.direction === 'out') {
+    if (partyName?.trim()) return `Paid to ${partyName.trim()}`
+    if (categoryName?.trim()) return `Expense - ${categoryName.trim()}`
+    if (mode) return `Payment via ${mode}`
+    return 'Outgoing transaction'
+  }
+
+  return 'Account activity'
 }
 
 function formatIsoDate(value: string) {

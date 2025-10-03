@@ -121,9 +121,10 @@ export default function StockTable() {
           <div className="text-xs text-muted-foreground">{rows.length} items</div>
         </div>
       </div>
-      <div className="overflow-x-auto border rounded-md w-full max-w-full">
-        <table className="min-w-full text-sm table-auto">
-          <thead className="bg-muted/50">
+      <div className="rounded-xl border bg-white shadow-sm">
+        <div className="max-h-[65vh] overflow-auto">
+          <table className="min-w-[960px] w-full text-sm table-auto">
+            <thead className="sticky top-0 z-10 bg-muted/70 backdrop-blur">
             <tr>
               <th className="p-2 text-left">Item Name</th>
               <th className="p-2 text-left whitespace-nowrap">SKU / Code</th>
@@ -135,11 +136,11 @@ export default function StockTable() {
               <th className="p-2 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody>
-            {filtered.map((r) => {
-              const ed = editing[r.id]
-              return (
-                <tr key={r.id} className="border-t">
+            <tbody>
+              {filtered.map((r) => {
+                const ed = editing[r.id]
+                return (
+                  <tr key={r.id} className="border-t">
                   <td className="p-2 font-medium">{r.name}</td>
                   <td className="p-2 whitespace-nowrap">
                     {ed ? (
@@ -190,11 +191,12 @@ export default function StockTable() {
             {!loading && filtered.length === 0 && (
               <tr><td className="p-2 text-muted-foreground" colSpan={10}>No items</td></tr>
             )}
-            {loading && (
-              <tr><td className="p-2" colSpan={10}>Loading…</td></tr>
-            )}
-          </tbody>
-        </table>
+              {loading && (
+                <tr><td className="p-2" colSpan={10}>Loading...</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="bg-white border rounded-md p-4 shadow-xl max-w-2xl w-[95vw]">

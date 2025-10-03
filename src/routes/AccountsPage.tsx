@@ -5,6 +5,7 @@ import { ArrowUpRight, FileText, RefreshCcw, TrendingUp } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAccounts } from '../hooks/useAccounts'
 import { useTransfers } from '../hooks/useTransfers'
+import { useTransactions } from '../hooks/useTransactions'
 import { formatCurrency } from '../lib/format'
 import AddAccountForm from '../features/accounts/AddAccountForm'
 import type { Account } from '../types/accounts'
@@ -16,12 +17,12 @@ type AccountSnapshot = {
   balance: number
   incomingTotal: number
   outgoingTotal: number
-  lastTransfer?: Date
+  lastActivity?: Date
 }
 
 type DashboardTotals = {
   totalVolume: number
-  latestTransfer?: Date
+  latestActivity?: Date
   accountCount: number
   positiveBalances: number
   combinedBalance: number
@@ -35,6 +36,12 @@ export default function AccountsPage() {
     error: transfersError,
     refetch: refetchTransfers,
   } = useTransfers()
+  const {
+    data: transactions,
+    loading: transactionsLoading,
+    error: transactionsError,
+    refetch: refetchTransactions,
+  } = useTransactions()
 
   const { snapshots, totals } = useMemo(() => {
     const accountLookup = new Map<string, Account>()
@@ -49,7 +56,7 @@ export default function AccountsPage() {
           balance: account.opening_balance,
           incomingTotal: 0,
           outgoingTotal: 0,
-          lastTransfer: undefined,
+          lastActivity: undefined,
         })
       }
       return summaryLookup.get(account.id)!
@@ -74,7 +81,7 @@ export default function AccountsPage() {
     accounts.forEach((account) => ensureSummary(account))
 
     let totalVolume = 0
-    let latestTransfer: Date | undefined
+    let latestActivity: Date | undefined
 
     transfers.forEach((transfer) => {
       const amount = Math.abs(Number(transfer.amount) || 0)
@@ -84,23 +91,47 @@ export default function AccountsPage() {
       const date = Number.isNaN(rawDate.getTime()) ? new Date() : rawDate
 
       totalVolume += amount
-      latestTransfer = mostRecent(latestTransfer, date)
+      latestActivity = mostRecent(latestActivity, date)
 
       const fromSummary = ensureSummaryById(transfer.from_account)
       const toSummary = ensureSummaryById(transfer.to_account)
 
       fromSummary.outgoingTotal += amount
       fromSummary.balance -= amount
-      fromSummary.lastTransfer = mostRecent(fromSummary.lastTransfer, date)
+      fromSummary.lastActivity = mostRecent(fromSummary.lastActivity, date)
 
       toSummary.incomingTotal += amount
       toSummary.balance += amount
-      toSummary.lastTransfer = mostRecent(toSummary.lastTransfer, date)
+      toSummary.lastActivity = mostRecent(toSummary.lastActivity, date)
+    })
+
+    transactions.forEach((tx) => {
+      if (!tx) return
+      const direction = tx.direction === 'in' ? 'in' : tx.direction === 'out' ? 'out' : undefined
+      if (!direction) return
+      const amount = Math.abs(Number(tx.amount) || 0)
+      if (!Number.isFinite(amount) || amount === 0) return
+
+      const rawDate = tx.date instanceof Date ? tx.date : new Date(tx.date as any)
+      const date = Number.isNaN(rawDate.getTime()) ? new Date() : rawDate
+
+      totalVolume += amount
+      latestActivity = mostRecent(latestActivity, date)
+
+      const summary = ensureSummaryById(tx.account_id)
+      if (direction === 'in') {
+        summary.incomingTotal += amount
+        summary.balance += amount
+      } else {
+        summary.outgoingTotal += amount
+        summary.balance -= amount
+      }
+      summary.lastActivity = mostRecent(summary.lastActivity, date)
     })
 
     const snapshots = Array.from(summaryLookup.values()).sort((a, b) => {
-      const aTime = a.lastTransfer ? a.lastTransfer.getTime() : 0
-      const bTime = b.lastTransfer ? b.lastTransfer.getTime() : 0
+      const aTime = a.lastActivity ? a.lastActivity.getTime() : 0
+      const bTime = b.lastActivity ? b.lastActivity.getTime() : 0
       if (bTime !== aTime) return bTime - aTime
       return b.balance - a.balance
     })
@@ -110,21 +141,23 @@ export default function AccountsPage() {
 
     const totals: DashboardTotals = {
       totalVolume,
-      latestTransfer,
+      latestActivity,
       accountCount: snapshots.length,
       positiveBalances,
       combinedBalance,
     }
 
     return { snapshots, totals }
-  }, [accounts, transfers])
+  }, [accounts, transfers, transactions])
 
-  const loading = accountsLoading || transfersLoading
-  const errorMessage = accountsError || transfersError
+  const loading = accountsLoading || transfersLoading || transactionsLoading
+  const errorParts = [accountsError, transfersError, transactionsError].filter(Boolean) as string[]
+  const errorMessage = errorParts.length > 0 ? errorParts.join(' | ') : null
 
   const refreshAll = () => {
     refetch()
     refetchTransfers()
+    refetchTransactions()
   }
 
   return (
@@ -146,7 +179,7 @@ export default function AccountsPage() {
           <div className="relative space-y-8 p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-xl space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/65">Account transfers</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/65">Account activity</p>
                 <h1 className="text-3xl font-semibold md:text-4xl">Account hub</h1>
                 <p className="text-sm text-white/70">
                   Focus on the flow of funds. Each card highlights the account name, current balance, and the latest movements only.
@@ -165,7 +198,7 @@ export default function AccountsPage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <HeroMetric icon={TrendingUp} label="Transfer volume" value={formatCurrency(totals.totalVolume)} hint="All recorded transfers" />
+              <HeroMetric icon={TrendingUp} label="Total volume" value={formatCurrency(totals.totalVolume)} hint="All transfers and transactions" />
               <HeroMetric
                 icon={FileText}
                 label="Managed accounts"
@@ -176,8 +209,8 @@ export default function AccountsPage() {
               />
               <HeroMetric
                 icon={ArrowUpRight}
-                label="Last transfer"
-                value={totals.latestTransfer ? formatDate(totals.latestTransfer) : 'Not recorded yet'}
+                label="Last activity"
+                value={totals.latestActivity ? formatDate(totals.latestActivity) : 'Not recorded yet'}
                 hint={`Combined balance ${formatCurrency(totals.combinedBalance)}`}
               />
             </div>
@@ -246,7 +279,7 @@ function AccountCard({ snapshot }: { snapshot: AccountSnapshot }) {
       <CardContent className="space-y-4">
         <dl className="space-y-2 text-sm">
           <DetailRow label="Opening balance" value={formatCurrency(snapshot.account.opening_balance)} />
-          <DetailRow label="Last transfer" value={snapshot.lastTransfer ? formatDate(snapshot.lastTransfer) : 'Not recorded'} />
+          <DetailRow label="Last activity" value={snapshot.lastActivity ? formatDate(snapshot.lastActivity) : 'Not recorded'} />
           <DetailRow label="Incoming" value={formatCurrency(snapshot.incomingTotal)} />
           <DetailRow label="Outgoing" value={formatCurrency(snapshot.outgoingTotal)} />
         </dl>
